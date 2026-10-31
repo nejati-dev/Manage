@@ -1027,7 +1027,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
         <div class="ktab active" data-ktab="overview">📊 کارنامه</div>
         <div class="ktab" data-ktab="subjects">📚 درس‌ها</div>
         <div class="ktab" data-ktab="tests">✏️ تست‌ها</div>
-        <div class="ktab" data-ktab="plan">🗓️ برنامه</div>
+        <div class="ktab" data-ktab="plan">⏱️ مطالعه</div>
       </div>
 
       <!-- ── TAB: OVERVIEW ── -->
@@ -1242,17 +1242,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
       <div id="ktab-plan" style="display:none;">
         <div class="card">
           <div class="card-header">
-            <div class="card-title">🗓️ برنامه روز</div>
-            <button class="btn btn-sm btn-primary" id="genPlanBtn">⚡ تولید خودکار</button>
-          </div>
-          <div class="kpick" id="kPlanPickBox" style="margin-bottom:12px;"></div>
-          <input id="kPlanDate" type="hidden">
-          <div id="todayPlan"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">➕ اضافه کردن به برنامه</div>
+            <div class="card-title">➕ ثبت مطالعه</div>
           </div>
           <div class="field-row" style="margin-bottom:8px;">
             <div>
@@ -1260,15 +1250,37 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
               <select id="kPlanSubject"></select>
             </div>
             <div>
-              <label>مدت (دقیقه)</label>
-              <input id="kPlanMinutes" type="number" min="5" step="5" value="45" placeholder="۴۵">
+              <label>مبحث (اختیاری)</label>
+              <select id="kPlanTopic"></select>
+            </div>
+          </div>
+          <div class="field-row" style="margin-bottom:8px;">
+            <div>
+              <label>ساعت</label>
+              <input id="kPlanHours" type="number" min="0" max="24" step="1" placeholder="۰">
+            </div>
+            <div>
+              <label>دقیقه</label>
+              <input id="kPlanMinutes" type="number" min="0" max="59" step="5" placeholder="۰">
             </div>
           </div>
           <div style="margin-bottom:8px;">
             <label>توضیح (اختیاری)</label>
             <input id="kPlanNote" placeholder="مثلاً: فصل ۴ معادلات">
           </div>
-          <button class="btn btn-primary" id="addPlanBtn" style="width:100%;justify-content:center;">➕ افزودن به برنامه روز انتخاب‌شده</button>
+          <div style="margin-bottom:8px;">
+            <label>تاریخ</label>
+            <div class="kpick" id="kPlanPickBox"></div>
+            <input id="kPlanDate" type="hidden">
+          </div>
+          <button class="btn btn-primary" id="addPlanBtn" style="width:100%;justify-content:center;">➕ ثبت مطالعه</button>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📒 مطالعه‌ی روز انتخاب‌شده</div>
+          </div>
+          <div id="todayPlan"></div>
         </div>
 
         <div class="card">
@@ -2910,8 +2922,10 @@ function kTopicInfo(t){
   return parts.join(' · ');
 }
 function kFillTopics(){
-  const el=$('#kTestTopic'); if(!el) return; const sid=$('#kTestSubject')?.value;
-  el.innerHTML='<option value="">— بدون مبحث —</option>'+(S.konkur.topics||[]).filter(t=>t.subjectId===sid).map(t=>`<option value="${t.id}">${kEsc(t.name)}</option>`).join('');
+  [['#kTestTopic','#kTestSubject'],['#kPlanTopic','#kPlanSubject']].forEach(([t,s])=>{
+    const el=$(t); if(!el) return; const sid=$(s)?.value;
+    el.innerHTML='<option value="">— بدون مبحث —</option>'+(S.konkur.topics||[]).filter(x=>x.subjectId===sid).map(x=>`<option value="${x.id}">${kEsc(x.name)}</option>`).join('');
+  });
 }
 window.kAddTopic=sid=>{
   const el=$('#kTopicIn-'+sid), n=(el?.value||'').trim(); if(!n) return;
@@ -3206,93 +3220,49 @@ window.deleteTest=id=>{
 $('#addPlanBtn').onclick=()=>{
   const subId=$('#kPlanSubject').value;
   if(!subId){ toast('ابتدا یه درس اضافه کن','error'); return; }
-  const mins=parseInt($('#kPlanMinutes').value)||45;
-  if(!S.konkur.plans) S.konkur.plans=[];
-  S.konkur.plans.push({
-    id:gid(), date:kPlanDate(), subjectId:subId,
-    minutes:mins, note:$('#kPlanNote').value.trim(), done:false
-  });
-  save(); renderTodayPlan();
-  $('#kPlanNote').value='';
-  toast('✅ به برنامه امروز اضافه شد','success');
-};
-
-$('#genPlanBtn').onclick=()=>{
-  const subs=S.konkur.subjects||[];
-  if(!subs.length){ toast('ابتدا درس اضافه کن','error'); return; }
-  if(!S.konkur.plans) S.konkur.plans=[];
-  // remove existing today plans
+  const h=parseInt($('#kPlanHours').value)||0, m=parseInt($('#kPlanMinutes').value)||0;
+  if(h<0||m<0||m>59){ toast('دقیقه باید بین ۰ تا ۵۹ باشد','error'); return; }
+  const mins=h*60+m;
+  if(mins<1){ toast('مدت مطالعه را وارد کن','error'); return; }
   const pd=kPlanDate();
-  // فقط موردهای انجام‌نشده بازتولید می‌شن؛ کارهای تیک‌خورده و زمانشون حفظ می‌شه
-  S.konkur.plans=S.konkur.plans.filter(p=>p.date!==pd||p.done);
-
-  // sort: high prio first, then lowest mastery
-  const sorted=[...subs].sort((a,b)=>{
-    const prioW={high:0,mid:1,low:2};
-    if(prioW[a.prio]!==prioW[b.prio]) return prioW[a.prio]-prioW[b.prio];
-    return kMastery(a.id)-kMastery(b.id);
-  });
-
-  const minMap={high:60,mid:45,low:30};
-  let addedCount=0;
-  sorted.forEach(s=>{
-    if(S.konkur.plans.some(p=>p.date===pd&&p.done&&p.subjectId===s.id)) return;
-    const mastery=kMastery(s.id);
-    const target=s.target||70;
-
-    // درس‌هایی که ۱۰٪ یا بیشتر از هدف رد کردن رو رد کن
-    if(mastery >= target+10) return;
-
-    // نزدیک‌ به هدف → نصف وقت عادی بهش بده (نگهداشت تسلط)
-    let mins=minMap[s.prio]||45;
-    if(mastery >= target) mins=Math.round(mins/2);
-
-    S.konkur.plans.push({
-      id:gid(), date:pd, subjectId:s.id,
-      minutes:mins,
-      note: mastery>=target ? 'مرور نگهداشت تسلط' : '',
-      done:false
-    });
-    addedCount++;
-  });
-
-  save(); renderTodayPlan();
-  if(addedCount===0) toast('🎉 همه درس‌ها به هدفشون رسیدن!','success');
-  else toast(`⚡ برنامه امروز تولید شد (${fa(addedCount)} درس)`,'success');
+  if(pd>today()){ toast('برای روز آینده نمی‌شود مطالعه ثبت کرد','error'); return; }
+  if(!S.konkur.plans) S.konkur.plans=[];
+  const dayTot=S.konkur.plans.filter(p=>p.done&&p.date===pd).reduce((a,p)=>a+p.minutes,0);
+  if(dayTot+mins>1440){ toast('جمع مطالعه‌ی یک روز از ۲۴ ساعت بیشتر می‌شود','error'); return; }
+  const xp=Math.min(20,Math.round(mins/6)), topicId=$('#kPlanTopic').value||'';
+  S.konkur.plans.push({ id:gid(), date:pd, subjectId:subId, topicId, minutes:mins, note:$('#kPlanNote').value.trim(), done:true, xpGiven:true, xp });
+  S.xp+=xp;
+  const tp=kTopic(topicId); if(tp&&!tp.last){ tp.last=pd; tp.step=0; } // اولین مطالعه‌ی مبحث، چرخه‌ی مرور را شروع می‌کند
+  save(); refreshMetrics(); renderTodayPlan(); renderWeeklyChart(); renderKonkurOverview();
+  $('#kPlanHours').value=''; $('#kPlanMinutes').value=''; $('#kPlanNote').value='';
+  toast('✅ مطالعه ثبت شد','success');
 };
 
 function renderTodayPlan(){
   renderReviews();
-  const el=$('#todayPlan');
-  const plans=(S.konkur.plans||[]).filter(p=>p.date===kPlanDate());
-  if(!plans.length){
-    el.innerHTML='<div class="empty-state"><div class="empty-icon">🗓️</div>برنامه‌ای برای امروز ندارید<br><small style="color:var(--muted)">دستی اضافه کنید یا «تولید خودکار» بزنید</small></div>';
-    return;
-  }
-  const total=plans.reduce((a,p)=>a+p.minutes,0);
-  const done=plans.filter(p=>p.done).reduce((a,p)=>a+p.minutes,0);
+  const el=$('#todayPlan'); if(!el) return;
+  const pd=kPlanDate(), all=(S.konkur.plans||[]).filter(p=>p.date===pd);
+  const logs=all.filter(p=>p.done), old=all.filter(p=>!p.done);
+  const fmt=m=>{ const h=Math.floor(m/60), r=m%60; return h?`${fa(h)} ساعت${r?' و '+fa(r)+' دقیقه':''}`:`${fa(r)} دقیقه`; };
+  const tot=logs.reduce((a,p)=>a+p.minutes,0);
+  let wk=0; for(let i=0;i<7;i++){ const d=new Date(); d.setDate(d.getDate()-i); const ds=dateStr(d);
+    wk+=(S.konkur.plans||[]).filter(p=>p.done&&p.date===ds).reduce((a,q)=>a+q.minutes,0); }
+  const row=(p,isOld)=>{ const sub=kSubject(p.subjectId), tp=p.topicId?kTopic(p.topicId):null;
+    return `<div class="study-plan-row" ${isOld?'style="opacity:.6;"':''}>
+      <div class="plan-dot" style="background:${sub?.color||'#888'}"></div>
+      <div style="flex:1;">
+        <span style="font-weight:700;">${kEsc(sub?.name||'?')}${tp?' › '+kEsc(tp.name):''}</span>
+        <span style="font-size:11px;color:var(--muted);margin-right:6px;">${fmt(p.minutes)}${p.note?' — '+kEsc(p.note):''}${isOld?' — برنامه‌ی قدیمی (انجام نشده)':''}</span>
+      </div>
+      ${isOld?`<button class="btn btn-sm" onclick="togglePlan('${p.id}',true)">✓ انجام شد</button>`:''}
+      <button class="btn btn-icon btn-sm" onclick="deletePlan('${p.id}')" style="color:var(--danger);">✕</button>
+    </div>`; };
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:10px;padding:0 2px;">
-      <span>📊 ${fa(plans.filter(p=>p.done).length)}/${fa(plans.length)} انجام‌شده</span>
-      <span>⏱️ ${fa(Math.round(done/60*10)/10)} از ${fa(Math.round(total/60*10)/10)} ساعت</span>
+      <span>⏱️ این روز: ${fmt(tot)}</span>
+      <span>📅 ۷ روز اخیر: ${fmt(wk)}</span>
     </div>
-    <div class="progress" style="margin-bottom:14px;">
-      <div class="progress-fill" style="width:${total?Math.round(done/total*100):0}%"></div>
-    </div>
-    ${plans.map(p=>{
-      const sub=kSubject(p.subjectId);
-      return `<div class="study-plan-row">
-        <input type="checkbox" ${p.done?'checked':''} onchange="togglePlan('${p.id}',this.checked)"
-          style="width:16px;height:16px;accent-color:var(--accent2);cursor:pointer;flex-shrink:0;">
-        <div class="plan-dot" style="background:${sub?.color||'#888'}"></div>
-        <div style="flex:1;" class="${p.done?'plan-done':''}">
-          <span style="font-weight:700;">${kEsc(sub?.name||'?')}</span>
-          <span style="font-size:11px;color:var(--muted);margin-right:6px;">${fa(p.minutes)} دقیقه${p.note?' — '+kEsc(p.note):''}</span>
-        </div>
-        <button class="btn btn-icon btn-sm" onclick="deletePlan('${p.id}')" style="color:var(--danger);">✕</button>
-      </div>`;
-    }).join('')}
-  `;
+    ${all.length?logs.map(p=>row(p,false)).join('')+old.map(p=>row(p,true)).join(''):'<div class="empty-state"><div class="empty-icon">⏱️</div>برای این روز مطالعه‌ای ثبت نشده</div>'}`;
 }
 
 window.togglePlan=(id,done)=>{
@@ -3302,8 +3272,10 @@ window.togglePlan=(id,done)=>{
 };
 
 window.deletePlan=id=>{
-  S.konkur.plans=(S.konkur.plans||[]).filter(p=>p.id!==id);
-  save(); renderTodayPlan();
+  const p=(S.konkur.plans||[]).find(x=>x.id===id);
+  if(p&&p.xp) S.xp=Math.max(0,S.xp-p.xp); // امتیاز همان ثبت برگردانده می‌شود
+  S.konkur.plans=(S.konkur.plans||[]).filter(x=>x.id!==id);
+  save(); refreshMetrics(); renderTodayPlan(); renderWeeklyChart(); renderKonkurOverview();
 };
 
 // ── Weekly study chart ────────────────────────────────────────────────────────
@@ -3654,6 +3626,7 @@ const kTestPick=kPicker('kTestPickBox','kTestDate',null);
 const kPlanPick=kPicker('kPlanPickBox','kPlanDate',()=>renderTodayPlan());
 kExamPick?.set(S.konkur.examDate); kTestPick?.set(today()); kPlanPick?.set(today());
 $('#kTestSubject')?.addEventListener('change',kFillTopics);
+$('#kPlanSubject')?.addEventListener('change',kFillTopics);
 $('#kCutoff')?.addEventListener('change',e=>{ const v=parseFloat(e.target.value); S.konkur.cutoff=(v>0&&v<=100)?v:0; save(); renderGoal(); });
 ['kTrendSub','kTrendRange'].forEach(id=>$('#'+id)?.addEventListener('change',drawTrendChart));
 let _kr; window.addEventListener('resize',()=>{ clearTimeout(_kr); _kr=setTimeout(()=>{
