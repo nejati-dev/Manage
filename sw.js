@@ -1,6 +1,6 @@
 // LifeOS Service Worker
 // نسخه cache رو هر بار که HTML آپدیت می‌کنی عوض کن تا کاربران نسخه جدید رو بگیرن
-const CACHE_VERSION = 'lifeos-v6';
+const CACHE_VERSION = 'lifeos-v7';
 const ASSETS = [
   './',
   './index.html',

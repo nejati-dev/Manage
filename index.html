@@ -844,8 +844,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
             <input id="hTitle" placeholder="عنوان عادت...">
             <select id="hFreq">
               <option value="daily">روزانه</option>
-              <option value="weekly">هفتگی</option>
+              <option value="weekly">هفته‌ای ۱ بار</option>
+              <option value="w2">هفته‌ای ۲ بار</option>
+              <option value="w3">هفته‌ای ۳ بار</option>
+              <option value="w4">هفته‌ای ۴ بار</option>
+              <option value="w5">هفته‌ای ۵ بار</option>
             </select>
+            <input id="hNote" placeholder="پیام شخصی به خودت (اختیاری)، مثلاً: فقط ۱۰ دقیقه کافیه">
             <button class="btn btn-primary" id="saveHabit" style="width:100%;justify-content:center;">+ ثبت عادت</button>
           </div>
           <hr>
@@ -1928,33 +1933,78 @@ function weekStartStr() {
   return dateStr(d);
 }
 
+const hEsc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hDay = iso => { const q=String(iso).split('-').map(Number); return Math.round(Date.UTC(q[0],q[1]-1,q[2])/864e5); }; // شماره‌ی روز (بدون وابستگی به منطقه‌ی زمانی)
+const hWeek = n => Math.floor((n-2)/7); // شماره‌ی هفته؛ هفته از شنبه شروع می‌شود (روز ۰ = پنجشنبه)
+
+// آمار عادت: زنجیره‌ی فعلی، بهترین زنجیره، درصد ۳۰ روز اخیر و ...
+function habitStats(h){
+  const days=[...new Set((h.checkins||[]).filter(Boolean))].sort(), nums=days.map(hDay), set=new Set(nums), t=hDay(today());
+  const need=h.freq==='weekly'?Math.max(1,h.perWeek||1):0;
+  let cur=0,best=0;
+  if(!need){
+    let run=0; nums.forEach((n,i)=>{ run=(i&&n===nums[i-1]+1)?run+1:1; best=Math.max(best,run); });
+    let d=set.has(t)?t:t-1; while(set.has(d)){ cur++; d--; }
+  } else {
+    const cnt={}; nums.forEach(n=>{ const w=hWeek(n); cnt[w]=(cnt[w]||0)+1; });
+    const ok=w=>(cnt[w]||0)>=need, ws=Object.keys(cnt).map(Number).filter(ok).sort((a,b)=>a-b);
+    let run=0; ws.forEach((w,i)=>{ run=(i&&w===ws[i-1]+1)?run+1:1; best=Math.max(best,run); });
+    const cw=hWeek(t); let w=ok(cw)?cw:cw-1; while(ok(w)){ cur++; w--; }
+  }
+  const first=[h.createdAt?hDay(h.createdAt):Infinity, nums.length?nums[0]:Infinity].reduce((a,b)=>Math.min(a,b));
+  const win=isFinite(first)?Math.max(1,Math.min(30,t-first+1)):0;
+  const inWin=win?nums.filter(n=>n>t-win&&n<=t).length:0;
+  return { need,cur,best,t,total:nums.length,last:nums.length?nums[nums.length-1]:null,checkedToday:set.has(t),
+    weekCount:nums.filter(n=>hWeek(n)===hWeek(t)).length, win, rate:win?Math.round(inWin/win*100):0 };
+}
+
+// پیام زیر هر عادت
+function habitMsg(h,s){
+  const M=[3,7,14,21,30,50,66,100,200,365];
+  if(s.need){
+    if(!s.total) return '🌱 هنوز شروع نشده؛ اولین بار را در همین هفته ثبت کن.';
+    const left=s.need-s.weekCount, since=((s.t-2)%7+7)%7, possible=(6-since)+(s.checkedToday?0:1);
+    if(left<=0) return `✅ هدف این هفته (${fa(s.need)} بار) کامل شد`+(s.cur>1?` — ${fa(s.cur)} هفته‌ی پیاپی 🔥`:'');
+    if(left>possible) return `این هفته ${fa(s.weekCount)} از ${fa(s.need)} بار انجام شده و رسیدن به هدف سخت شده. اشکالی ندارد؛ هر بار ارزش دارد، هفته‌ی بعد دوباره.`;
+    return `این هفته ${fa(s.weekCount)} از ${fa(s.need)} بار — ${fa(left)} بار دیگر مانده`+(s.cur>0?` (${fa(s.cur)} هفته‌ی پیاپی)`:'');
+  }
+  if(!s.total) return '🌱 امروز اولین روز توست؛ حتی یک نسخه‌ی کوچک هم حساب می‌شود.';
+  if(s.checkedToday){
+    if(M.includes(s.cur)) return `🎉 ${fa(s.cur)} روز پیاپی! این یک نقطه‌ی عطف واقعی است.`;
+    if(s.cur>1) return `🔥 ${fa(s.cur)} روز پیاپی`+(s.cur>=s.best?' — رکورد خودت است!':` — رکوردت ${fa(s.best)} روز است`);
+    return '✅ امروز انجام شد؛ فردا روز دوم زنجیره است.';
+  }
+  if(s.cur>0) return `⏳ ${fa(s.cur)} روز پیاپی داری؛ امروز انجامش بده تا زنجیره نپرد.`;
+  return `${fa(s.t-s.last)} روز از آخرین بار گذشته. همین امروز با یک نسخه‌ی کوچک دوباره شروع کن؛ رکوردت (${fa(s.best)} روز) سر جایش است.`;
+}
+
 function renderHabits() {
   const todayStr = today();
   const weekStart = weekStartStr();
+  const yd = new Date(); yd.setDate(yd.getDate()-1); const ydStr = dateStr(yd);
 
   $('#habitList').innerHTML = S.habits.length ? S.habits.map(h => {
+    const ck = h.checkins||[];
     const last7 = Array.from({length:7},(_,i)=>{
       const d = new Date(); d.setDate(d.getDate()-i);
-      return (h.checkins||[]).includes(dateStr(d));
+      return ck.includes(dateStr(d));
     }).reverse();
 
     const isWeekly = h.freq === 'weekly';
-    const checkedToday = (h.checkins||[]).includes(todayStr);
-    // برای هفتگی: آیا در این هفته (از شنبه تا حالا) چک شده؟
-    const checkedThisWeek = isWeekly
-      ? (h.checkins||[]).some(d => d >= weekStart)
-      : checkedToday;
-    const canCheck = !checkedThisWeek;
-    const doneLabel = isWeekly ? 'این هفته انجام شد' : 'امروز انجام شد';
+    const perWeek = isWeekly ? Math.max(1,h.perWeek||1) : 0;
+    const checkedToday = ck.includes(todayStr);
+    const checkedThisWeek = ck.some(d => d >= weekStart);
+    // هفته‌ای ۱ بار: کل هفته یک بار؛ سایر حالت‌ها: هر روز حداکثر یک بار
+    const showUndo = (isWeekly && perWeek===1) ? checkedThisWeek : checkedToday;
+    const st = habitStats(h), msg = habitMsg(h, st);
 
-    // برای هفتگی نقطه‌های ۴ هفته اخیر نشون بده
     let dotsHtml;
     if (isWeekly) {
       const weeks4 = Array.from({length:4},(_,i)=>{
         const start = new Date(); start.setDate(start.getDate()-((3-i)*7+(new Date().getDay()+1)%7));
         const end   = new Date(start); end.setDate(start.getDate()+6);
         const startS = dateStr(start), endS = dateStr(end);
-        return (h.checkins||[]).some(d => d>=startS && d<=endS);
+        return ck.filter(d => d>=startS && d<=endS).length >= perWeek;
       });
       dotsHtml = `${weeks4.map(v=>`<div class="habit-dot ${v?'done':''}"></div>`).join('')}
         <span style="font-size:10px;color:var(--muted);margin-right:4px;">۴ هفته گذشته</span>`;
@@ -1962,22 +2012,29 @@ function renderHabits() {
       dotsHtml = `${last7.map(v=>`<div class="habit-dot ${v?'done':''}"></div>`).join('')}
         <span style="font-size:10px;color:var(--muted);margin-right:4px;">۷ روز گذشته</span>`;
     }
+    const yBtn = !isWeekly ? `<button class="btn btn-sm" onclick="toggleHabitYesterday('${h.id}')" style="color:var(--muted)" title="ثبت یا لغو برای دیروز">${ck.includes(ydStr)?'دیروز ✓':'＋ دیروز'}</button>` : '';
+    const stats = `کل: ${fa(st.total)} بار`+(!isWeekly&&st.win?` · ${fa(st.win)} روز اخیر: ${fa(st.rate)}٪`:'')+(st.best>0?` · بهترین زنجیره: ${fa(st.best)} ${isWeekly?'هفته':'روز'}`:'');
 
     return `
       <div class="habit-item">
         <div class="row-between">
           <div>
-            <div style="font-size:13px;font-weight:700;">${h.title}</div>
-            <div style="font-size:11px;color:var(--muted);">${isWeekly?'هفتگی':'روزانه'}</div>
+            <div style="font-size:13px;font-weight:700;">${hEsc(h.title)}</div>
+            <div style="font-size:11px;color:var(--muted);">${isWeekly?`هفته‌ای ${fa(perWeek)} بار`:'روزانه'}</div>
           </div>
           <div class="row">
-            ${checkedThisWeek
+            ${yBtn}
+            ${showUndo
               ? `<button class="btn btn-sm" onclick="uncheckHabit('${h.id}')" style="color:var(--muted)">↩ لغو</button>`
               : `<button class="btn btn-sm btn-success" onclick="checkHabit('${h.id}')">✓ انجام</button>`}
+            <button class="btn btn-icon btn-sm" onclick="editHabit('${h.id}')" title="ویرایش">✏️</button>
             <button class="btn btn-icon btn-sm" onclick="delHabit('${h.id}')" style="color:var(--danger)">🗑️</button>
           </div>
         </div>
         <div class="habit-streak-dots">${dotsHtml}</div>
+        <div style="font-size:12px;margin-top:8px;line-height:1.7;">${msg}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${stats}</div>
+        ${h.note?`<div style="font-size:11px;color:var(--accent);margin-top:4px;">💬 ${hEsc(h.note)}</div>`:''}
       </div>
     `;
   }).join('') : '<div class="empty-state"><div class="empty-icon">🔄</div>هنوز عادتی ثبت نکرده‌اید</div>';
@@ -1985,25 +2042,40 @@ function renderHabits() {
 
 window.checkHabit = id => {
   const todayStr = today();
-  S.habits = S.habits.map(h => {
-    if (h.id === id) {
-      h.checkins = h.checkins || [];
-      if (!h.checkins.includes(todayStr)) { h.checkins.push(todayStr); S.xp += 10; toast('🔥 عادت ثبت شد! +۱۰ XP','success'); }
-    }
-    return h;
-  });
+  const h = S.habits.find(x => x.id === id); if (!h) return;
+  h.checkins = h.checkins || [];
+  if (!h.checkins.includes(todayStr)) { h.checkins.push(todayStr); S.xp += 10; toast('🔥 عادت ثبت شد! +۱۰ XP','success'); }
   save(); render();
 };
 
 window.uncheckHabit = id => {
-  const todayStr = today();
-  S.habits = S.habits.map(h => {
-    if (h.id === id) {
-      h.checkins = (h.checkins||[]).filter(d => d!==todayStr);
-      S.xp = Math.max(0, S.xp-10);
-    }
-    return h;
-  });
+  const h = S.habits.find(x => x.id === id); if (!h) return;
+  const before = (h.checkins||[]).length;
+  if (h.freq === 'weekly' && Math.max(1,h.perWeek||1) === 1) {
+    const ws = weekStartStr();
+    h.checkins = (h.checkins||[]).filter(d => d < ws);   // هفته‌ای ۱ بار: انجام این هفته (هر روزی) برداشته می‌شود
+  } else {
+    h.checkins = (h.checkins||[]).filter(d => d !== today());
+  }
+  S.xp = Math.max(0, S.xp - 10*(before - h.checkins.length)); // فقط به‌اندازه‌ی ثبت‌های واقعاً حذف‌شده
+  save(); render();
+};
+
+window.toggleHabitYesterday = id => {
+  const h = S.habits.find(x => x.id === id); if (!h) return;
+  const d = new Date(); d.setDate(d.getDate()-1); const ys = dateStr(d);
+  h.checkins = h.checkins || [];
+  if (h.checkins.includes(ys)) { h.checkins = h.checkins.filter(x => x !== ys); S.xp = Math.max(0, S.xp-10); }
+  else { h.checkins.push(ys); S.xp += 10; toast('✅ برای دیروز ثبت شد','success'); }
+  save(); render();
+};
+
+window.editHabit = id => {
+  const h = S.habits.find(x => x.id === id); if (!h) return;
+  const t = prompt('عنوان عادت:', h.title); if (t === null) return;
+  const n = prompt('پیام شخصی (خالی = بدون پیام):', h.note||''); if (n === null) return;
+  if (t.trim()) h.title = t.trim();
+  h.note = n.trim();
   save(); render();
 };
 
@@ -2516,8 +2588,10 @@ $('#filterStatus').onchange = renderTasks;
 $('#saveHabit').onclick = () => {
   const title = $('#hTitle').value.trim();
   if (!title) return toast('❌ عنوان الزامی است', 'error');
-  S.habits.push({ id: gid(), title, freq: $('#hFreq').value, checkins: [] });
-  $('#hTitle').value = '';
+  const fv = $('#hFreq').value;
+  S.habits.push({ id: gid(), title, freq: fv==='daily'?'daily':'weekly', perWeek: /^w\d$/.test(fv)?+fv[1]:1,
+    note: $('#hNote').value.trim(), createdAt: today(), checkins: [] });
+  $('#hTitle').value = ''; $('#hNote').value = '';
   save(); render();
   toast('✅ عادت ثبت شد', 'success');
 };
